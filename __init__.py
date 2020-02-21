@@ -2,7 +2,6 @@ import json
 import time
 import nomad
 import base64
-import timeout_decorator
 from rundeck_plugin_common import RundeckPlugin, RundeckPluginError
 from .job_model import jobspec, groupspec, taskspec, templatespec
 
@@ -23,8 +22,6 @@ class RundeckPluginNomad(RundeckPlugin):
     def nomad_connect(self, *args, **kwargs):
         self.nomad = nomad.Nomad(kwargs)
 
-    # @timeout_decorator.timeout(self.eval_timeout)
-    @timeout_decorator.timeout(20)
     def __evaluate(self, id):
         while True:
             status = self.nomad.evaluation.get_evaluation(id)['Status']
@@ -40,8 +37,6 @@ class RundeckPluginNomad(RundeckPlugin):
             else:
                 raise NomadEvaluationException
 
-    # @timeout_decorator.timeout(self.alloc_timeout)
-    @timeout_decorator.timeout(60)
     def __monitor(self, id):
         __offset = [0, 0]
         while True:
@@ -146,18 +141,12 @@ class RundeckPluginNomad(RundeckPlugin):
             eval = self.__evaluate(job['EvalID'])
             self.log.debug(eval)
             alloc = self.__filter_alloc(eval)['ID']
-        except timeout_decorator.timeout_decorator.TimeoutError:
-            self.log.error('Evaluation timeout exceeded')
-            raise NomadEvaluationException
         except NomadEvaluationException:
             self.log.error('Evaluation failed')
             raise NomadEvaluationException
 
         try:
             self.__monitor(alloc)
-        except timeout_decorator.timeout_decorator.TimeoutError:
-            self.log.error('Allocation timeout exceeded')
-            raise NomadAllocationException
         except NomadAllocationException:
             self.log.error('Allocation failed')
             raise NomadAllocationException
