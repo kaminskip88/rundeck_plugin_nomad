@@ -2,6 +2,7 @@ import json
 import time
 import nomad
 import base64
+from functools import partial
 from rundeck_plugin_common import RundeckPlugin, RundeckPluginError
 from .job_model import jobspec, groupspec, taskspec, templatespec
 
@@ -56,6 +57,17 @@ class RundeckPluginNomad(RundeckPlugin):
             else:
                 raise NomadAllocationException
 
+    # This generator uses json.JSONDecoder.raw_decode() to read
+    # multiple json objects from string
+    def __json_parser(self, text, decoder=json.JSONDecoder()):
+        while text:
+            try:
+                result, index = decoder.raw_decode(text)
+                yield result
+                text = text[index:].lstrip()
+            except ValueError:
+                break
+
     def __logs(self, id, offset, log_type):
         try:
             logs_json = self.nomad.client.stream_logs.stream(
@@ -65,9 +77,12 @@ class RundeckPluginNomad(RundeckPlugin):
         except nomad.api.exceptions.URLNotFoundNomadException:
             logs_json = None
         if logs_json:
-            logs = json.loads(logs_json)
-            self.print(base64.b64decode(logs.get('Data', '')).decode('ascii'))
-            offset = logs.get('Offset', 0)
+            # When requesting nginx log stream for very long log entries,
+            # it can return multiple json objects in as single response.
+            # see __json_parser method for more details
+            for log in self.__json_parser(logs_json):
+                self.print(base64.b64decode(log.get('Data', '')).decode('ascii'))
+                offset = log.get('Offset', 0)
         return offset
 
     def __filter_alloc(self, allocations):
